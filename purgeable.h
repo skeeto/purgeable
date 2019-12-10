@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 struct purgeable {
     void *addr;
     size_t numpages;
@@ -8,7 +10,7 @@ struct purgeable {
 };
 
 /**
- * Allocate a contiguous purgeable memory region in an unlocked state.
+ * Allocate a contiguous purgeable memory region in a locked state.
  */
 struct purgeable *purgeable_alloc(size_t);
 

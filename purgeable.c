@@ -25,7 +25,6 @@ purgeable_alloc(size_t len)
     pg->addr = p;
     pg->numpages = numpages;
     pg->pagesize = pagesize;
-    purgeable_unlock(pg);
     return pg;
 }
 
