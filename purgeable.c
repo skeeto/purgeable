@@ -1,6 +1,9 @@
 /* This is free and unencumbered software released into the public domain. */
+#define _XOPEN_SOURCE 700
 #define _DEFAULT_SOURCE
+#include <limits.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include "purgeable.h"
@@ -17,7 +20,8 @@ purgeable_alloc(size_t len)
         return 0;
     }
 
-    struct purgeable *pg = malloc(sizeof(struct purgeable) + numpages);
+    size_t nelems = (numpages + LONG_BIT - 1) / LONG_BIT;
+    struct purgeable *pg = malloc(sizeof(*pg) + sizeof(pg->save[0])*nelems);
     if (!pg) {
         munmap(p, numpages*pagesize);
         return 0;
@@ -32,38 +36,52 @@ void
 purgeable_free(struct purgeable *pg)
 {
     munmap(pg->addr, pg->numpages*pg->pagesize);
-    pg->addr = 0;
     free(pg);
 }
 
 void
 purgeable_unlock(struct purgeable *pg)
 {
-    /* Save the original first byte, write 1 into the first byte of each
-     * page, then set it all to MADV_FREE.
+    size_t nelems = (pg->numpages + LONG_BIT - 1) / LONG_BIT;
+    memset(pg->save, 0, sizeof(pg->save[0])*nelems);
+
+    /* If the original first page byte is zero, set to 1 and remember
+     * that it should be zero. Then set everything to MADV_FREE.
      */
     unsigned char *p = pg->addr;
     for (size_t i = 0; i < pg->numpages; i++) {
-        pg->save[i] = p[i*pg->pagesize];
-        p[i*pg->pagesize] = 1;
+        if (!p[i*pg->pagesize]) {
+            pg->save[i/LONG_BIT] |= 1UL << (i%LONG_BIT);
+            p[i*pg->pagesize] = 1;
+        }
     }
     madvise(p, pg->numpages*pg->pagesize, MADV_FREE);
 }
 
-_Bool
+void *
 purgeable_lock(struct purgeable *pg)
 {
-    /* Atomically swap the original first byte of each page back into
-     * place, ensuring that the page has not been freed in the meantime.
+    /* Do an atomic compare and swap on the first byte of each page to
+     * ensure that 1) the MADV_FREE is canceled by a write, and 2) the
+     * page wasn't freed just before the write.
      */
     for (size_t i = 0; i < pg->numpages; i++) {
         unsigned char *ptr = (unsigned char *)pg->addr + i*pg->pagesize;
-        unsigned char oldval = 1;
-        unsigned char newval = pg->save[i];
+        unsigned char oldval, newval;
+        if (pg->save[i/LONG_BIT] & (1UL << (i%LONG_BIT))) {
+            /* Original value is 0, so placeholder is 1. */
+            oldval = 1;
+            newval = 0;
+        } else {
+            /* Original value is non-zero, so just swap it with itself. */
+            oldval = newval = *ptr;
+            if (!oldval) {
+                return 0;
+            }
+        }
         if (!__sync_bool_compare_and_swap(ptr, oldval, newval)) {
-            purgeable_free(pg);
             return 0;
         }
     }
-    return 1;
+    return pg->addr;
 }

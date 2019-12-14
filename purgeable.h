@@ -6,7 +6,7 @@ struct purgeable {
     void *addr;
     size_t numpages;
     size_t pagesize;
-    unsigned char save[];
+    unsigned long save[];
 };
 
 /**
@@ -25,7 +25,7 @@ void purgeable_unlock(struct purgeable *);
 void purgeable_free(struct purgeable *);
 
 /**
- * Attempt to lock a purgeable memory region, returning true on success.
- * On failure, the purgeable region is automatically freed.
+ * Attempt to lock a purgeable memory region, returning the locked
+ * region address on success, or NULL on failure.
  */
-_Bool purgeable_lock(struct purgeable *);
+void *purgeable_lock(struct purgeable *);

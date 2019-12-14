@@ -21,7 +21,7 @@ triple32(uint32_t x)
 int
 main(void)
 {
-    size_t len = 1<<22;
+    size_t len = 1<<24;
     struct purgeable *pg = purgeable_alloc(len);
     if (!pg) abort();
 
@@ -38,6 +38,7 @@ main(void)
 
         /* Verify that data is still here and valid. */
         if (!purgeable_lock(pg)) {
+            purgeable_free(pg);
             return 0;
         }
         for (size_t i = 0; i < len/4; i++) {
