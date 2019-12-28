@@ -8,67 +8,84 @@
 #include <sys/mman.h>
 #include "purgeable.h"
 
-struct purgeable *
+/* Compute the required number of bookkeeping pages. We need 1 bit for
+ * each page, plus room for a size_t to hold the number of pages. The
+ * size_t will be stored just below the allocation returned to the
+ * caller.
+ */
+static inline size_t
+purgeable_numextra(size_t numpages, size_t pagesize)
+{
+    return (numpages + sizeof(size_t)*8 + pagesize*8 - 1) / pagesize*8;
+}
+
+void *
 purgeable_alloc(size_t len)
 {
     size_t pagesize = getpagesize();
     size_t numpages = (len + pagesize - 1) / pagesize;
+    size_t numextra = purgeable_numextra(numpages, pagesize);
+
     int prot = PROT_READ|PROT_WRITE;
     int flags = MAP_PRIVATE|MAP_ANONYMOUS;
-    void *p = mmap(0, numpages*pagesize, prot, flags, -1, 0);
+    char *p = mmap(0, (numpages + numextra)*pagesize, prot, flags, -1, 0);
     if (p == MAP_FAILED) {
         return 0;
     }
 
-    size_t nelems = (numpages + LONG_BIT - 1) / LONG_BIT;
-    struct purgeable *pg = malloc(sizeof(*pg) + sizeof(pg->save[0])*nelems);
-    if (!pg) {
-        munmap(p, numpages*pagesize);
-        return 0;
-    }
-    pg->addr = p;
-    pg->numpages = numpages;
-    pg->pagesize = pagesize;
-    return pg;
+    char *buf = p + numextra*pagesize;
+    ((size_t *)buf)[-1] = numpages;
+    return buf;
 }
 
 void
-purgeable_free(struct purgeable *pg)
+purgeable_free(void *p)
 {
-    munmap(pg->addr, pg->numpages*pg->pagesize);
-    free(pg);
+    size_t pagesize = getpagesize();
+    size_t numpages = ((size_t *)p)[-1];
+    size_t numextra = purgeable_numextra(numpages, pagesize);
+    munmap((char *)p - numextra*pagesize, (numpages + numextra)*pagesize);
 }
 
 void
-purgeable_unlock(struct purgeable *pg)
+purgeable_unlock(void *p)
 {
-    size_t nelems = (pg->numpages + LONG_BIT - 1) / LONG_BIT;
-    memset(pg->save, 0, sizeof(pg->save[0])*nelems);
+    size_t pagesize = getpagesize();
+    size_t numpages = ((size_t *)p)[-1];
+    size_t numextra = purgeable_numextra(numpages, pagesize);
+    unsigned long *save = (unsigned long *)((char *)p - numextra*pagesize);
+    memset(save, 0, (numpages + 7)/8);
 
     /* If the original first page byte is zero, set to 1 and remember
      * that it should be zero. Then set everything to MADV_FREE.
      */
-    unsigned char *p = pg->addr;
-    for (size_t i = 0; i < pg->numpages; i++) {
-        if (!p[i*pg->pagesize]) {
-            pg->save[i/LONG_BIT] |= 1UL << (i%LONG_BIT);
-            p[i*pg->pagesize] = 1;
+    unsigned char *buf = p;
+    for (size_t i = 0; i < numpages; i++) {
+        if (!buf[i*pagesize]) {
+            save[i/LONG_BIT] |= 1UL << (i%LONG_BIT);
+            buf[i*pagesize] = 1;
         }
     }
-    madvise(p, pg->numpages*pg->pagesize, MADV_FREE);
+    madvise(p, numpages*pagesize, MADV_FREE);
 }
 
 void *
-purgeable_lock(struct purgeable *pg)
+purgeable_lock(void *p)
 {
+    size_t pagesize = getpagesize();
+    size_t numpages = ((size_t *)p)[-1];
+    size_t numextra = purgeable_numextra(numpages, pagesize);
+    unsigned long *save = (unsigned long *)((char *)p - numextra*pagesize);
+
     /* Do an atomic compare and swap on the first byte of each page to
      * ensure that 1) the MADV_FREE is canceled by a write, and 2) the
      * page wasn't freed just before the write.
      */
-    for (size_t i = 0; i < pg->numpages; i++) {
-        unsigned char *ptr = (unsigned char *)pg->addr + i*pg->pagesize;
+    unsigned char *buf = p;
+    for (size_t i = 0; i < numpages; i++) {
+        unsigned char *ptr = buf + i*pagesize;
         unsigned char oldval, newval;
-        if (pg->save[i/LONG_BIT] & (1UL << (i%LONG_BIT))) {
+        if (save[i/LONG_BIT] & (1UL << (i%LONG_BIT))) {
             /* Original value is 0, so placeholder is 1. */
             oldval = 1;
             newval = 0;
@@ -83,5 +100,5 @@ purgeable_lock(struct purgeable *pg)
             return 0;
         }
     }
-    return pg->addr;
+    return p;
 }

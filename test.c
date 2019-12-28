@@ -22,23 +22,22 @@ int
 main(void)
 {
     size_t len = 1<<24;
-    struct purgeable *pg = purgeable_alloc(len);
-    if (!pg) abort();
+    uint32_t *buf = purgeable_alloc(len);
+    if (!buf) abort();
 
     /* Fill memory with random data. */
-    uint32_t *buf = pg->addr;
     for (size_t i = 0; i < len/4; i++) {
         buf[i] = triple32(~i);
     }
 
-    purgeable_unlock(pg);
+    purgeable_unlock(buf);
     for (;;) {
         struct timespec ts = {0, 250000000L};
         nanosleep(&ts, 0);
 
         /* Verify that data is still here and valid. */
-        if (!purgeable_lock(pg)) {
-            purgeable_free(pg);
+        if (!purgeable_lock(buf)) {
+            purgeable_free(buf);
             return 0;
         }
         for (size_t i = 0; i < len/4; i++) {
@@ -49,6 +48,6 @@ main(void)
             }
         }
 
-        purgeable_unlock(pg);
+        purgeable_unlock(buf);
     }
 }

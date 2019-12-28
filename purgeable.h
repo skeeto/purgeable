@@ -2,30 +2,27 @@
 
 #include <stddef.h>
 
-struct purgeable {
-    void *addr;
-    size_t numpages;
-    size_t pagesize;
-    unsigned long save[];
-};
-
 /**
  * Allocate a contiguous purgeable memory region in a locked state.
+ * The returned pointer is the allocation itself, or NULL if the memory
+ * could not be allocated.
  */
-struct purgeable *purgeable_alloc(size_t);
+void *purgeable_alloc(size_t);
 
 /**
- * Unlock a purgeable memory region allowing the OS to reclaim if needed.
+ * Unlock an allocation allowing the kernel to reclaim it if needed.
  */
-void purgeable_unlock(struct purgeable *);
+void purgeable_unlock(void *);
 
 /**
- * Free a purgeable region of memory.
+ * Attempt to lock an allocation to prevent reclamation by the kernel.
+ * Returns the address on success, or NULL if the allocation had been
+ * reclaimed. Even if the allocation has been reclaimed, you must still
+ * call purgeable_free().
  */
-void purgeable_free(struct purgeable *);
+void *purgeable_lock(void *);
 
 /**
- * Attempt to lock a purgeable memory region, returning the locked
- * region address on success, or NULL on failure.
+ * Free an allocation made using purgeable_alloc().
  */
-void *purgeable_lock(struct purgeable *);
+void purgeable_free(void *);
