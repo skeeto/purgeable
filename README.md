@@ -5,6 +5,13 @@ kernel at any time while unlocked. Before accessing or using the
 allocation, it must be locked, and then unlocked when no longer in
 active use. See `purgeable.h` for API documentation.
 
+```c
+void *purgeable_alloc(size_t);
+void  purgeable_unlock(void *);
+void *purgeable_lock(void *);
+void  purgeable_free(void *);
+```
+
 This idea was inspired by [OS hacking: Purgeable memory][vid]
 ([discussion][disc]).
 
