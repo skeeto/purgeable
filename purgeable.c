@@ -56,14 +56,14 @@ purgeable_unlock(void *p)
     unsigned long *save = (unsigned long *)((char *)p - numextra*pagesize);
     memset(save, 0, (numpages + 7)/8);
 
-    /* If the original first page byte is zero, set to 1 and remember
+    /* If the original first page long is zero, set to 1 and remember
      * that it should be zero. Then set everything to MADV_FREE.
      */
-    unsigned char *buf = p;
+    long *buf = p;
     for (size_t i = 0; i < numpages; i++) {
-        if (!buf[i*pagesize]) {
+        if (!buf[i*(pagesize/sizeof(long))]) {
             save[i/LONG_BIT] |= 1UL << (i%LONG_BIT);
-            buf[i*pagesize] = 1;
+            buf[i*(pagesize/sizeof(long))] = 1;
         }
     }
     madvise(p, numpages*pagesize, MADV_FREE);
@@ -77,14 +77,14 @@ purgeable_lock(void *p)
     size_t numextra = purgeable_numextra(numpages, pagesize);
     unsigned long *save = (unsigned long *)((char *)p - numextra*pagesize);
 
-    /* Do an atomic compare and swap on the first byte of each page to
+    /* Do an atomic compare and swap on the first long of each page to
      * ensure that 1) the MADV_FREE is canceled by a write, and 2) the
      * page wasn't freed just before the write.
      */
-    unsigned char *buf = p;
+    long *buf = p;
     for (size_t i = 0; i < numpages; i++) {
-        unsigned char *ptr = buf + i*pagesize;
-        unsigned char oldval, newval;
+        long *ptr = buf + i*(pagesize/sizeof(long));
+        long oldval, newval;
         if (save[i/LONG_BIT] & (1UL << (i%LONG_BIT))) {
             /* Original value is 0, so placeholder is 1. */
             oldval = 1;
