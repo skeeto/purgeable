@@ -5,6 +5,8 @@ kernel at any time while unlocked. Before accessing or using the
 allocation, it must be locked, and then unlocked when no longer in
 active use. See `purgeable.h` for API documentation.
 
+Full article: [Purgeable Memory Allocations for Linux][article]
+
 ```c
 void *purgeable_alloc(size_t);
 void  purgeable_unlock(void *);
@@ -21,5 +23,6 @@ being killed by the OOM killer), instances of `test` will see their
 regions get reclaimed and exit.
 
 
+[article]: https://nullprogram.com/blog/2019/12/29/
 [disc]: https://old.reddit.com/r/programming/comments/e8pbmk/implementing_macosstyle_purgeable_memory_in_my/
 [vid]: https://www.youtube.com/watch?v=9l0nWEUpg7s
